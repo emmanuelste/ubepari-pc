@@ -2,7 +2,7 @@ import { defineRailway, github, postgres, project, service } from "railway/iac";
 
 export default defineRailway(() => {
   const database = postgres("ubepari-postgres", {
-    region: "asia-southeast1-eqsg3a",
+    region: "sfo",
   });
 
   const storefront = service("ubepari-pc", {

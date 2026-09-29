@@ -47,7 +47,7 @@ The storefront checkout is also a handoff demo, not a payment service. It opens 
 
 ## Deploy to Railway
 
-The Railway infrastructure definition is in `.railway/railway.ts`. It creates a managed PostgreSQL service and a storefront service connected to the GitHub `main` branch, builds with `npm run build`, starts with `npm start`, checks `/api/health`, and passes the private PostgreSQL `DATABASE_URL` to the app. Both services are configured for Railway's Singapore region. The app uses TLS for Railway PostgreSQL connections (the platform-generated database certificate is not CA-verified). The health endpoint checks database connectivity before reporting ready.
+The Railway infrastructure definition is in `.railway/railway.ts`. It creates a managed PostgreSQL service in SFO and a storefront service in Singapore connected to the GitHub `main` branch, builds with `npm run build`, starts with `npm start`, checks `/api/health`, and passes the private PostgreSQL `DATABASE_URL` to the app. Cross-region service traffic uses Railway's encrypted private network. The app also enables TLS for Railway PostgreSQL connections (the platform-generated database certificate is not CA-verified). The health endpoint checks database connectivity before reporting ready.
 
 1. Push this repository to `https://github.com/emmanuelste/ubepari-pc` on the `main` branch.
 2. Install the Railway CLI, authenticate with `railway login`, and create/link a Railway project from this directory with `railway init`.

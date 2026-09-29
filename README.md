@@ -1,10 +1,12 @@
 # Ubepari PC
 
-A responsive computer storefront for Ubepari PC, built with React and Vite, an Express REST API, and a persistent SQLite database.
+A responsive computer storefront for Ubepari PC, built with React and Vite, an Express REST API, and PostgreSQL.
 
 ## Run locally
 
-Requirements: Node.js 18 or later and npm.
+Requirements: Node.js 18 or later, npm, and a PostgreSQL database.
+
+Set `DATABASE_URL` to a PostgreSQL connection string before starting the API. For local development, copy `.env.example` to `.env` and set the URL to your local PostgreSQL instance; the API loads this file automatically.
 
 ```sh
 npm install
@@ -18,13 +20,13 @@ npm run build
 npm start
 ```
 
-After building, `npm start` serves both the API and the frontend on port 4000. Set `PORT` to change the API port. The SQLite database is created at `data/ubepari.sqlite`; set `DATABASE_PATH` to use a different file.
+After building, `npm start` serves both the API and the frontend on port 4000. Set `PORT` to change the API port. On first start, the app creates the catalog and demo savings-goals tables in PostgreSQL and seeds the ten example products.
 
 ## What's included
 
 - Product catalog seeded with ten example laptops, searchable by product, brand, and category.
 - Product detail views, current-price display, and savings-pace calculator.
-- Demo savings goals saved to SQLite, with input validation and a saved-goals drawer.
+- Demo savings goals saved to PostgreSQL, with input validation and a saved-goals drawer.
 - Responsive storefront, store-location link, community section, and mobile navigation.
 - WhatsApp-assisted checkout with customer contact details, Tanzania delivery address or map pin, order summary, and review links.
 - Checkout name, phone, and email are remembered in the current browser only and can be cleared from the checkout form.
@@ -45,11 +47,11 @@ The storefront checkout is also a handoff demo, not a payment service. It opens 
 
 ## Deploy to Railway
 
-The Railway infrastructure definition is in `.railway/railway.ts`. It creates a production service connected to the GitHub `main` branch, builds with `npm run build`, starts with `npm start`, checks `/api/health`, and mounts a 512 MB persistent volume at `/app/data` for SQLite. The service and volume are configured for Railway's Singapore region.
+The Railway infrastructure definition is in `.railway/railway.ts`. It creates a managed PostgreSQL service and a storefront service connected to the GitHub `main` branch, builds with `npm run build`, starts with `npm start`, checks `/api/health`, and passes the private PostgreSQL `DATABASE_URL` to the app. Both services are configured for Railway's Singapore region. The health endpoint checks database connectivity before reporting ready.
 
 1. Push this repository to `https://github.com/emmanuelste/ubepari-pc` on the `main` branch.
 2. Install the Railway CLI, authenticate with `railway login`, and create/link a Railway project from this directory with `railway init`.
 3. Review the proposed resources with `railway config plan`, then apply with `railway config apply`. Authorize Railway's GitHub integration for the repository if prompted.
 4. Generate a Railway public domain for the `ubepari-pc` service in the Railway dashboard (Settings → Networking → Public Networking → Generate Domain), then wait for the first deployment to pass `/api/health`.
 
-The public Railway domain is created in the Railway workspace rather than hard-coded in this repository. Railway usage and persistent storage may incur charges depending on the workspace plan. The local `.env` files and `data/` database files are excluded from Git.
+The public Railway domain is created in the Railway workspace rather than hard-coded in this repository. Railway usage and managed PostgreSQL may incur charges depending on the workspace plan. The local `.env` files and legacy/local `data/` database files are excluded from Git. Local demo savings-goal records are not migrated to production.

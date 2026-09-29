@@ -1,9 +1,8 @@
-import { defineRailway, github, project, service, volume } from "railway/iac";
+import { defineRailway, github, postgres, project, service } from "railway/iac";
 
 export default defineRailway(() => {
-  const database = volume("ubepari-data", {
+  const database = postgres("ubepari-postgres", {
     region: "asia-southeast1-eqsg3a",
-    sizeMB: 512,
   });
 
   const storefront = service("ubepari-pc", {
@@ -13,7 +12,7 @@ export default defineRailway(() => {
     regions: { "asia-southeast1-eqsg3a": 1 },
     healthcheck: "/api/health",
     healthcheckTimeout: 300,
-    volumeMounts: { "/app/data": database },
+    env: { DATABASE_URL: database.env.DATABASE_URL },
   });
 
   return project("ubepari-pc", {

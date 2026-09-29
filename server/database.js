@@ -1,7 +1,6 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
-import initSqlJs from 'sql.js';
+import pg from 'pg';
 
+const { Pool } = pg;
 const products = [
   { id: 'macbook-pro-m4', name: 'MacBook Pro 14” M4', brand: 'Apple', category: 'workstation', price: 5400000, monthly: 450000, tag: 'Creator pick', details: 'M4 · 16GB unified memory · 512GB SSD · Liquid Retina XDR', image: 'photo-1517336714731-489689fd1ca8', accent: 'mint' },
   { id: 'macbook-air-m3', name: 'MacBook Air 13” M3', brand: 'Apple', category: 'everyday', price: 3700000, monthly: 310000, tag: 'Light & ready', details: 'M3 · 16GB unified memory · 256GB SSD · 18-hour battery', image: 'photo-1496181133206-80ce9b88a853', accent: 'blue' },
@@ -15,88 +14,94 @@ const products = [
   { id: 'zenbook-pro-duo', name: 'Zenbook Pro 14 Duo OLED', brand: 'ASUS', category: 'workstation', price: 4950000, monthly: 410000, tag: 'Dual-screen', details: 'Core i9 · RTX 4060 · 32GB RAM · dual OLED touchscreens', image: 'photo-1525547719571-a2d4ac8945e2', accent: 'blue' },
 ];
 
-const dataDirectory = path.resolve(process.cwd(), 'data');
-const databasePath = path.resolve(process.cwd(), process.env.DATABASE_PATH || './data/ubepari.sqlite');
-let database;
-
-function saveDatabase() {
-  return fs.writeFile(databasePath, Buffer.from(database.export()));
+if (!process.env.DATABASE_URL) {
+  throw new Error('DATABASE_URL is required. Configure a PostgreSQL database before starting the API.');
 }
 
-export async function initializeDatabase() {
-  await fs.mkdir(dataDirectory, { recursive: true });
-  await fs.mkdir(path.dirname(databasePath), { recursive: true });
-  const SQL = await initSqlJs({
-    locateFile: (file) => path.join(process.cwd(), 'node_modules', 'sql.js', 'dist', file),
-  });
-  try {
-    const file = await fs.readFile(databasePath);
-    database = new SQL.Database(new Uint8Array(file));
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw error;
-    database = new SQL.Database();
-  }
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: Number(process.env.PG_POOL_MAX || 10),
+  connectionTimeoutMillis: 10000,
+  idleTimeoutMillis: 30000,
+});
 
-  database.run(`
+pool.on('error', (error) => {
+  console.error('Unexpected PostgreSQL pool error.', error);
+});
+
+export async function initializeDatabase() {
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS products (
-      id TEXT PRIMARY KEY, name TEXT NOT NULL, brand TEXT NOT NULL,
-      category TEXT NOT NULL, price INTEGER NOT NULL, monthly INTEGER NOT NULL,
-      tag TEXT NOT NULL, details TEXT NOT NULL, image TEXT NOT NULL, accent TEXT NOT NULL
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      brand TEXT NOT NULL,
+      category TEXT NOT NULL,
+      price INTEGER NOT NULL,
+      monthly INTEGER NOT NULL,
+      tag TEXT NOT NULL,
+      details TEXT NOT NULL,
+      image TEXT NOT NULL,
+      accent TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS goals (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, product_id TEXT NOT NULL,
-      product_name TEXT NOT NULL, target_amount INTEGER NOT NULL,
-      target_months INTEGER NOT NULL, monthly_amount INTEGER NOT NULL,
-      provider TEXT NOT NULL, phone TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+      product_id TEXT NOT NULL,
+      product_name TEXT NOT NULL,
+      target_amount INTEGER NOT NULL,
+      target_months INTEGER NOT NULL,
+      monthly_amount INTEGER NOT NULL,
+      provider TEXT NOT NULL,
+      phone TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
   `);
 
-  const count = database.exec('SELECT COUNT(*) AS total FROM products')[0]?.values[0][0] ?? 0;
-  if (!count) {
-    const insert = database.prepare('INSERT INTO products VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-    for (const product of products) insert.run(Object.values(product));
-    insert.free();
+  for (const product of products) {
+    await pool.query(`
+      INSERT INTO products (id, name, brand, category, price, monthly, tag, details, image, accent)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      ON CONFLICT (id) DO NOTHING
+    `, Object.values(product));
   }
-  await saveDatabase();
 }
 
-function rows(statement, values = []) {
-  const query = database.prepare(statement);
-  query.bind(values);
-  const results = [];
-  while (query.step()) results.push(query.getAsObject());
-  query.free();
-  return results;
+export async function checkDatabase() {
+  await pool.query('SELECT 1');
 }
 
-export function listProducts({ brand, category, search } = {}) {
+export async function listProducts({ brand, category, search } = {}) {
   const filters = [];
   const values = [];
-  if (brand && brand !== 'all') { filters.push('brand = ?'); values.push(brand); }
-  if (category && category !== 'all') { filters.push('category = ?'); values.push(category); }
+  if (brand && brand !== 'all') { values.push(brand); filters.push(`brand = $${values.length}`); }
+  if (category && category !== 'all') { values.push(category); filters.push(`category = $${values.length}`); }
   if (search) {
-    filters.push('(LOWER(name) LIKE ? OR LOWER(brand) LIKE ? OR LOWER(details) LIKE ?)');
-    const term = `%${search.toLowerCase()}%`;
-    values.push(term, term, term);
+    values.push(`%${search.toLowerCase()}%`);
+    const parameter = `$${values.length}`;
+    filters.push(`(LOWER(name) LIKE ${parameter} OR LOWER(brand) LIKE ${parameter} OR LOWER(details) LIKE ${parameter})`);
   }
-  return rows(`SELECT * FROM products ${filters.length ? `WHERE ${filters.join(' AND ')}` : ''} ORDER BY price`, values);
+  const result = await pool.query(
+    `SELECT * FROM products ${filters.length ? `WHERE ${filters.join(' AND ')}` : ''} ORDER BY price`,
+    values,
+  );
+  return result.rows;
 }
 
-export function getProduct(id) {
-  return rows('SELECT * FROM products WHERE id = ?', [id])[0] || null;
+export async function getProduct(id) {
+  const result = await pool.query('SELECT * FROM products WHERE id = $1', [id]);
+  return result.rows[0] || null;
 }
 
 export async function createGoal({ product, months, provider, phone }) {
   const monthly = Math.ceil(product.price / months);
-  database.run(
-    'INSERT INTO goals (product_id, product_name, target_amount, target_months, monthly_amount, provider, phone) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    [product.id, product.name, product.price, months, monthly, provider, phone],
-  );
-  const goal = rows('SELECT * FROM goals WHERE id = last_insert_rowid()')[0];
-  await saveDatabase();
-  return goal;
+  const result = await pool.query(`
+    INSERT INTO goals (product_id, product_name, target_amount, target_months, monthly_amount, provider, phone)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
+    RETURNING *
+  `, [product.id, product.name, product.price, months, monthly, provider, phone]);
+  return result.rows[0];
 }
 
-export function listGoals() {
-  return rows('SELECT * FROM goals ORDER BY created_at DESC, id DESC');
+export async function listGoals() {
+  const result = await pool.query('SELECT * FROM goals ORDER BY created_at DESC, id DESC');
+  return result.rows;
 }

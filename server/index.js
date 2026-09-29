@@ -1,9 +1,10 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createGoal, getProduct, initializeDatabase, listGoals, listProducts } from './database.js';
+import { checkDatabase, createGoal, getProduct, initializeDatabase, listGoals, listProducts } from './database.js';
 
 const app = express();
 const port = Number(process.env.PORT || 4000);
@@ -20,20 +21,41 @@ app.use(helmet({
 app.use(cors({ origin: process.env.NODE_ENV === 'production' ? false : true }));
 app.use(express.json({ limit: '20kb' }));
 
-app.get('/api/health', (_request, response) => response.json({ status: 'ok', service: 'ubepari-api' }));
-
-app.get('/api/products', (request, response) => {
-  const { brand, category, search } = request.query;
-  response.json({ products: listProducts({ brand, category, search }) });
+app.get('/api/health', async (_request, response, next) => {
+  try {
+    await checkDatabase();
+    return response.json({ status: 'ok', service: 'ubepari-api', database: 'postgresql' });
+  } catch (error) {
+    return next(error);
+  }
 });
 
-app.get('/api/products/:id', (request, response) => {
-  const product = getProduct(request.params.id);
-  if (!product) return response.status(404).json({ error: 'Product not found.' });
-  return response.json({ product });
+app.get('/api/products', async (request, response, next) => {
+  try {
+    const { brand, category, search } = request.query;
+    return response.json({ products: await listProducts({ brand, category, search }) });
+  } catch (error) {
+    return next(error);
+  }
 });
 
-app.get('/api/goals', (_request, response) => response.json({ goals: listGoals(), demo: true }));
+app.get('/api/products/:id', async (request, response, next) => {
+  try {
+    const product = await getProduct(request.params.id);
+    if (!product) return response.status(404).json({ error: 'Product not found.' });
+    return response.json({ product });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.get('/api/goals', async (_request, response, next) => {
+  try {
+    return response.json({ goals: await listGoals(), demo: true });
+  } catch (error) {
+    return next(error);
+  }
+});
 
 app.post('/api/goals', async (request, response, next) => {
   try {
@@ -46,7 +68,7 @@ app.post('/api/goals', async (request, response, next) => {
     if (!/^(?:\+?255|0)?[67]\d{8}$/.test(normalizedPhone)) {
       return response.status(400).json({ error: 'Enter a valid Tanzanian mobile number.' });
     }
-    const product = getProduct(String(productId));
+    const product = await getProduct(String(productId));
     if (!product) return response.status(404).json({ error: 'Product not found.' });
     const goal = await createGoal({ product, months: targetMonths, provider, phone: normalizedPhone });
     return response.status(201).json({ goal, demo: true, message: 'Demo savings goal saved. No payment was requested.' });

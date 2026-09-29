@@ -12,7 +12,10 @@ export default defineRailway(() => {
     regions: { "asia-southeast1-eqsg3a": 1 },
     healthcheck: "/api/health",
     healthcheckTimeout: 300,
-    env: { DATABASE_URL: database.env.DATABASE_URL },
+    env: {
+      DATABASE_URL: database.env.DATABASE_URL,
+      DATABASE_SSL: "true",
+    },
   });
 
   return project("ubepari-pc", {
